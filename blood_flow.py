@@ -49,12 +49,12 @@ class GrafoFluxo:
             u = fila.popleft()
             for v, capacidade in self.grafo[u].items():
                 if v not in visitados and capacidade > 0:
-                    visitados.add(v)
+                    visitados.add(v) # marca v como visitado
                     pai[v] = u # Se v for alcançado, u é seu pai no caminho
                     if v == sumidouro:
-                        return True
-                    fila.append(v)
-        return False
+                        return True # caminho aumentante encontrado, interrompe a BFS
+                    fila.append(v) # BFS por nível garante o caminho mais curto (em número de arestas)
+        return False # fila esgotada sem alançar T. Logo, não existem mais caminhos aumentantes
 
     def edmonds_karp(self, fonte, sumidouro):
         """
@@ -65,38 +65,38 @@ class GrafoFluxo:
         # guarda capacidades originais para depois calcular fluxo por aresta
         capacidade_original = {u: dict(vs) for u, vs in self.grafo.items()}
 
-        fluxo_total = 0
-        caminhos    = []   # guarda caminhos para exibição didática
+        fluxo_total = 0    # acumulador do fluxo máximo
+        caminhos    = []   # guarda caminhos para exibição (apenas para visualizar no terminal)
 
         while True:
             pai = {}
             if not self.bfs(fonte, sumidouro, pai):
-                break  # não há mais caminhos aumentantes
+                break  # não há mais caminhos aumentantes, fluxo máximo atingido
 
             # determina gargalo do caminho encontrado
             gargalo = float('inf')
             v = sumidouro
-            while v != fonte:
+            while v != fonte: # percorre o caminho de trás para frente
                 u = pai[v]
-                gargalo = min(gargalo, self.grafo[u][v])
+                gargalo = min(gargalo, self.grafo[u][v]) # o gargalo é a menor capacidade residual ao longo do caminho
                 v = u
 
             # reconstrói o caminho para exibição
             caminho = []
             v = sumidouro
-            while v != fonte:
+            while v != fonte: # reconstrói o caminho do sumidouro até a fonte
                 caminho.append(v)
                 v = pai[v]
             caminho.append(fonte)
-            caminho.reverse()
-            caminhos.append((caminho, gargalo))
+            caminho.reverse() # inverte para exibir da fonte até o sumidouro
+            caminhos.append((caminho, gargalo)) # salva para printar
 
             # atualiza capacidades residuais
             v = sumidouro
             while v != fonte:
                 u = pai[v]
-                self.grafo[u][v] -= gargalo
-                self.grafo[v][u] += gargalo
+                self.grafo[u][v] -= gargalo # consome capacidade na aresta direta
+                self.grafo[v][u] += gargalo # libera capacidade na aresta reversa
                 v = u
 
             fluxo_total += gargalo
@@ -107,10 +107,10 @@ class GrafoFluxo:
             for v, cap_orig in vizinhos.items():
                 if cap_orig > 0:  # só arestas "reais", não as reversas artificiais
                     usado = cap_orig - self.grafo[u][v]
-                    if usado > 0:
+                    if usado > 0: # ignora arestas sem fluxo
                         fluxo_por_aresta[(u, v)] = usado
-
-        return fluxo_total, caminhos, fluxo_por_aresta
+        # retorna: (valor do fluxo máximo, histórico de caminhos, fluxo real por aresta)
+        return fluxo_total, caminhos, fluxo_por_aresta 
 
     def corte_minimo(self, fonte):
         """
@@ -119,6 +119,8 @@ class GrafoFluxo:
         - Lado T: os demais nós
         Retorna as arestas saturadas que cruzam de S para T (o gargalo).
         """
+        # BFS final no grafo residual para mapear o lado s do corte mínimo
+        # todos os nós alcançáveis a partir da fonte com cap > 0 pertencem ao lado s
         alcancaveis = {fonte}
         fila = deque([fonte])
         while fila:
@@ -128,12 +130,15 @@ class GrafoFluxo:
                     alcancaveis.add(v)
                     fila.append(v)
 
+        # arestas do corte → arestas que saem do lado S e chegam no lado T
+        # são exatamente as arestas saturas que limitam o fluxo máximo
         arestas_corte = []
         for u in alcancaveis:
             for v in self.grafo.get(u, {}):
                 if v not in alcancaveis:
                     arestas_corte.append((u, v))
-
+        # alcancáveis → lado s do Corte
+        # arestas_corte → gargalos da rede
         return alcancaveis, arestas_corte
 
 
@@ -207,30 +212,32 @@ def construir_grafo(estoque=None):
         estoque = ESTOQUE_BOLSAS
 
     g = GrafoFluxo()
-    FONTE     = "S"
-    SUMIDOURO = "T"
+    FONTE     = "S" # Hospital como ponto de origem
+    SUMIDOURO = "T" # absorve todo o fluxo distribuído
 
     # Camada 1: Fonte → Oferta (capacidade = estoque disponível)
+    # itera sobre o dicionário de estoque e cria uma aresta da fonte para cada tipo sanguíneo (a capacidade dessa aresta é o número de bolsas disponível)
     for tipo, qtd in estoque.items():
         g.adicionar_aresta(FONTE, tipo, qtd)
 
     # Camada 2: Oferta → Demanda (capacidade infinita, limitada só pela compatibilidade)
     for doador, receptores in COMPATIBILIDADE.items():
-        for receptor in receptores:
+        for receptor in receptores: # cada par (doador, receptor) compatível vira uma aresta
             g.adicionar_aresta(doador, receptor, CAPACIDADE_INF)
 
     # Camada 3: Demanda → Sumidouro (capacidade = necessidade do paciente)
+    # A capacidade é a demanda do grupo (o algoritmo não irá enviar mais do que o necessário)
     for tipo_pac, qtd in DEMANDA_PACIENTES.items():
         g.adicionar_aresta(tipo_pac, SUMIDOURO, qtd)
 
-    return g, FONTE, SUMIDOURO
+    return g, FONTE, SUMIDOURO # retorna o grafo pronto e os identificadores dos terminais
 
 
 # =============================================================================
 # EXIBIÇÃO DOS RESULTADOS
 # =============================================================================
 
-def exibir_resultados(estoque, fluxo_maximo, caminhos, fluxo_por_aresta, grafo, fonte, titulo):
+def exibir_resultados(estoque, fluxo_maximo, caminhos, fluxo_por_aresta, grafo, fonte, titulo):#
     demanda_total = sum(DEMANDA_PACIENTES.values())
 
     print("=" * 64)
